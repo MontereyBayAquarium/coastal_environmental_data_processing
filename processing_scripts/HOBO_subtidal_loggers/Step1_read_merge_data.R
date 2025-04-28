@@ -63,11 +63,94 @@ glimpse(combined_df)
 ################################################################################
 # Tidy data
 
+str(combined_df)
+
+trimmed_df <- combined_df %>%
+  filter(
+    # compute “deploy date at 7 PM” for each record
+    date_time_pdt >= (ymd(date_deployed, tz = "America/Los_Angeles") + hours(19)),
+    # keep only timestamps before 2025-04-14 00:00 PDT
+    date_time_pdt <  ymd("2025-04-14", tz = "America/Los_Angeles")
+  )
+
+# Inspect
+glimpse(trimmed_df)
+
+
+################################################################################
+# Plot daily mean
+
+
+# Compute daily mean per site
+daily_site_means <- trimmed_df %>%
+  mutate(date = as_date(date_time_pdt)) %>%
+  group_by(site = kr_site_id, date) %>%
+  summarise(
+    mean_temp = mean(temperature_c, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+#Compute across-site summary per day
+daily_summary <- daily_site_means %>%
+  group_by(date) %>%
+  summarise(
+    mean_across_sites = mean(mean_temp),
+    se_across_sites   = sd(mean_temp) / sqrt(n()),
+    lower             = mean_across_sites - se_across_sites,
+    upper             = mean_across_sites + se_across_sites,
+    .groups = "drop"
+  )
+
+
+# Make sure you have date on your raw data:
+raw_plot_df <- trimmed_df %>%
+  mutate(date = as_date(date_time_pdt))
+
+p <- ggplot() +
+  # 1) All raw readings as points
+  geom_point(
+    data = raw_plot_df,
+    aes(x = date, y = temperature_c),
+    alpha = 0.1,    # lighten for overplotting
+    size  = 0.6
+  ) +
+  # 2) Ribbon for mean ± SE across sites
+  geom_ribbon(
+    data = daily_summary,
+    aes(x = date, ymin = lower, ymax = upper, group = 1),
+    fill  = "grey80",
+    alpha = 0.5
+  ) +
+  # 3) Line for the across‐site daily mean
+  geom_line(
+    data = daily_summary,
+    aes(x = date, y = mean_across_sites),
+    color = "steelblue",
+    size  = 1.5
+  ) +
+  scale_x_date(
+    date_breaks = "2 week",
+    date_labels = "%b %d"
+  ) +
+  labs(
+    title = "Daily mean temperature across recovery sites",
+    x     = "Date",
+    y     = expression("Temperature ("*~degree*C*")")
+  ) +
+  theme_bw()
 
 
 
+out_file <- file.path(Sys.getenv("HOME"), "Downloads", "daily_temps_plot.png")
 
+ggsave(
+  filename = out_file,
+  plot     = last_plot(),  # or: plot = my_ggplot_object
+  width    = 10,           # inches
+  height   = 5,            # inches
+  dpi      = 300,          # resolution
+  device   = "png"
+)
 
-
-
+message("Saved plot to: ", out_file)
 
